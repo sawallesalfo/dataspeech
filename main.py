@@ -1,22 +1,35 @@
-from datasets import load_dataset, Audio
+from datasets import load_dataset, load_from_disk, Audio
 from multiprocess import set_start_method
 from dataspeech import rate_apply, pitch_apply, snr_apply, squim_apply
 import torch
 import argparse
+import os
 
 
 if __name__ == "__main__":
     set_start_method("spawn")
     parser = argparse.ArgumentParser()
     
-    
+    # Dataset loading arguments
     parser.add_argument("dataset_name", type=str, help="Path or name of the dataset. See: https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/loading_methods#datasets.load_dataset.path")
     parser.add_argument("--configuration", default=None, type=str, help="Dataset configuration to use, if necessary.")
+    parser.add_argument("--from_disk", action="store_true", help="If set, load dataset from disk using load_from_disk instead of load_dataset.")
+    
+    # S3 storage options
+    parser.add_argument("--aws_access_key_id", default=None, type=str, help="AWS access key ID for S3 storage.")
+    parser.add_argument("--aws_secret_access_key", default=None, type=str, help="AWS secret access key for S3 storage.")
+    parser.add_argument("--aws_endpoint_url", default=None, type=str, help="AWS S3 endpoint URL (e.g., for custom S3-compatible storage).")
+    
+    # Output arguments
     parser.add_argument("--output_dir", default=None, type=str, help="If specified, save the dataset on disk with this path.")
     parser.add_argument("--repo_id", default=None, type=str, help="If specified, push the dataset to the hub.")
+    
+    # Column arguments
     parser.add_argument("--audio_column_name", default="audio", type=str, help="Column name of the audio column to be enriched.")
     parser.add_argument("--text_column_name", default="text", type=str, help="Text column name.")
     parser.add_argument("--rename_column", action="store_true", help="If activated, rename audio and text column names to 'audio' and 'text'. Useful if you want to merge datasets afterwards.")
+    
+    # Processing arguments
     parser.add_argument("--cpu_num_workers", default=1, type=int, help="Number of CPU workers for transformations that don't use GPUs or if no GPU are available.")
     parser.add_argument("--cpu_writer_batch_size", default=1000, type=int, help="writer_batch_size for transformations that don't use GPUs. See: https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Dataset.map.writer_batch_size")
     parser.add_argument("--batch_size", default=2, type=int, help="This parameters specify how many samples are passed by workers for operations that are using GPUs.")
@@ -26,13 +39,37 @@ if __name__ == "__main__":
     parser.add_argument("--apply_squim_quality_estimation", action="store_true", help="If set, will also use torchaudio-squim estimation (SI-SNR, STOI and PESQ).")
     parser.add_argument("--num_workers_per_gpu_for_squim", default=1, type=int, help="Number of workers per GPU for the SI-SNR, STOI and PESQ estimation if GPUs are available. Defaults to 1 if some are avaiable. Useful if you want multiple processes per GPUs to maximise GPU usage.")
 
-
     args = parser.parse_args()
     
-    if args.configuration:
-        dataset = load_dataset(args.dataset_name, args.configuration, num_proc=args.cpu_num_workers,)
+    # Setup storage options for S3 if provided
+    storage_options = None
+    if args.aws_access_key_id and args.aws_secret_access_key:
+        storage_options = {
+            "key": args.aws_access_key_id,
+            "secret": args.aws_secret_access_key,
+        }
+        if args.aws_endpoint_url:
+            storage_options["client_kwargs"] = {"endpoint_url": args.aws_endpoint_url}
+        print(f"Using S3 storage options{' with custom endpoint: ' + args.aws_endpoint_url if args.aws_endpoint_url else ''}")
+    elif args.aws_access_key_id or args.aws_secret_access_key or args.aws_endpoint_url:
+        print("Warning: Partial S3 credentials provided. Both --aws_access_key_id and --aws_secret_access_key are required for S3 storage.")
+        if not args.aws_access_key_id:
+            print("Missing: --aws_access_key_id")
+        if not args.aws_secret_access_key:
+            print("Missing: --aws_secret_access_key")
+    
+    if args.from_disk:
+        print(f"Loading dataset from disk: {args.dataset_name}")
+        if storage_options:
+            dataset = load_from_disk(args.dataset_name, storage_options=storage_options)
+        else:
+            dataset = load_from_disk(args.dataset_name)
     else:
-        dataset = load_dataset(args.dataset_name, num_proc=args.cpu_num_workers,)
+        print(f"Loading dataset from hub/path: {args.dataset_name}")
+        if args.configuration:
+            dataset = load_dataset(args.dataset_name, args.configuration, num_proc=args.cpu_num_workers)
+        else:
+            dataset = load_dataset(args.dataset_name, num_proc=args.cpu_num_workers)
         
     audio_column_name = "audio" if args.rename_column else args.audio_column_name
     text_column_name = "text" if args.rename_column else args.text_column_name
@@ -103,11 +140,13 @@ if __name__ == "__main__":
     
     if args.output_dir:
         print("Saving to disk...")
-        dataset.save_to_disk(args.output_dir)
+        if storage_options:
+            dataset.save_to_disk(args.output_dir, storage_options=storage_options)
+        else:
+            dataset.save_to_disk(args.output_dir)
     if args.repo_id:
         print("Pushing to the hub...")
         if args.configuration:
             dataset.push_to_hub(args.repo_id, args.configuration)
         else:
             dataset.push_to_hub(args.repo_id)
-    
