@@ -6,6 +6,12 @@ import argparse
 import os
 
 
+# We'll use [`main.py`](https://github.com/sawallesalfo/dataspeech/blob/main/main.py) to get the following continuous variables:
+# - Speaking rate `(nb_phonemes / utterance_length)`
+# - Scale-Invariant Signal-to-Distortion Ratio (SI-SDR)
+# - Reverberation
+
+
 if __name__ == "__main__":
     set_start_method("spawn")
     parser = argparse.ArgumentParser()
