@@ -179,7 +179,7 @@ class DataArguments:
     is_new_speaker_prompt: Optional[bool] = field(
         default=False, metadata={"help": "Whether to use the newest speaker prompt, which will be used for the next Parler-TTS."}
     )
-    gender_name: Optional[str] = field(
+    gender_column_name: Optional[str] = field(
         default=None, metadata={"help": "Speaker gender column name."}
     )
     speaker_id_column: Optional[str] = field(
