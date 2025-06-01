@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from accelerate import Accelerator, skip_first_batches
 from accelerate.logging import get_logger
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict, load_dataset, load_from_disk
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
