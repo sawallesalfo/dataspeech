@@ -189,7 +189,23 @@ class DataArguments:
     accent_column: Optional[str] = field(
         default=None, metadata={"help": "Accent column name, if any."}
     )
-
+    # S3 storage options
+    aws_access_key_id: Optional[str] = field(
+        default=None,
+        metadata={"help": "AWS access key ID for S3 storage."}
+    )
+    aws_secret_access_key: Optional[str] = field(
+        default=None,
+        metadata={"help": "AWS secret access key for S3 storage."}
+    )
+    aws_endpoint_url: Optional[str] = field(
+        default=None,
+        metadata={"help": "AWS S3 endpoint URL (e.g., for custom S3-compatible storage)."}
+    )
+    from_disk: bool = field(
+        default=False,
+        metadata={"help": "If set, load dataset from disk using load_from_disk instead of load_dataset."}
+    )
 
     def __post_init__(self):
         if self.push_to_hub and self.hub_dataset_id is None:
@@ -435,6 +451,23 @@ def main():
     if not data_args.is_single_speaker and data_args.speaker_name:
         raise ValueError(f"`is_single_speaker=False` but `speaker_name=data_args.speaker_name` is not specified. Add `--is_single_speaker` or remove `speaker_name`.")
 
+    # Setup S3 storage options if provided
+    storage_options = None
+    if hasattr(data_args, 'aws_access_key_id') and hasattr(data_args, 'aws_secret_access_key'):
+        if data_args.aws_access_key_id and data_args.aws_secret_access_key:
+            storage_options = {
+                "key": data_args.aws_access_key_id,
+                "secret": data_args.aws_secret_access_key,
+            }
+            if hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url:
+                storage_options["client_kwargs"] = {"endpoint_url": data_args.aws_endpoint_url}
+            logger.info(f"Using S3 storage options{' with custom endpoint: ' + data_args.aws_endpoint_url if hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url else ''}")
+        elif data_args.aws_access_key_id or data_args.aws_secret_access_key or (hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url):
+            logger.warning("Partial S3 credentials provided. Both aws_access_key_id and aws_secret_access_key are required for S3 storage.")
+            if not data_args.aws_access_key_id:
+                logger.warning("Missing: aws_access_key_id")
+            if not data_args.aws_secret_access_key:
+                logger.warning("Missing: aws_secret_access_key")
 
     # Create the custom configuration
     process_group_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=3600*3))
@@ -446,30 +479,50 @@ def main():
 
     # 3. Load annotated dataset
     logger.info("*** Load annotated dataset ***")
+    
+    # Prepare load_dataset kwargs
+    load_dataset_kwargs = {
+        "cache_dir": model_args.cache_dir,
+        "token": model_args.token,
+        "num_proc": data_args.preprocessing_num_workers,
+    }
+    if storage_options:
+        load_dataset_kwargs["storage_options"] = storage_options
+    
     if data_args.dataset_split_name is not None:
         raw_datasets = DatasetDict()
         data_splits = data_args.dataset_split_name.split("+")
         # load on a split-wise basis
         for split in data_splits:
             with accelerator.local_main_process_first():
-                raw_datasets[split] = load_dataset(
-                    data_args.dataset_name,
-                    data_args.dataset_config_name,
-                    split=split,
-                    cache_dir=model_args.cache_dir,
-                    token=model_args.token,
-                    num_proc=data_args.preprocessing_num_workers,
-                )
+                if hasattr(data_args, 'from_disk') and data_args.from_disk:
+                    logger.info(f"Loading dataset from disk: {data_args.dataset_name}")
+                    if storage_options:
+                        raw_datasets[split] = load_from_disk(data_args.dataset_name, storage_options=storage_options)[split]
+                    else:
+                        raw_datasets[split] = load_from_disk(data_args.dataset_name)[split]
+                else:
+                    raw_datasets[split] = load_dataset(
+                        data_args.dataset_name,
+                        data_args.dataset_config_name,
+                        split=split,
+                        **load_dataset_kwargs
+                    )
     else:
         with accelerator.local_main_process_first():
             # load all splits for annotation
-            raw_datasets = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
-                num_proc=data_args.preprocessing_num_workers,
-            )
+            if hasattr(data_args, 'from_disk') and data_args.from_disk:
+                logger.info(f"Loading dataset from disk: {data_args.dataset_name}")
+                if storage_options:
+                    raw_datasets = load_from_disk(data_args.dataset_name, storage_options=storage_options)
+                else:
+                    raw_datasets = load_from_disk(data_args.dataset_name)
+            else:
+                raw_datasets = load_dataset(
+                    data_args.dataset_name,
+                    data_args.dataset_config_name,
+                    **load_dataset_kwargs
+                )
 
     raw_datasets_features = set(raw_datasets[next(iter(raw_datasets))].features.keys())
 
@@ -653,7 +706,13 @@ def main():
         accelerator.wait_for_everyone()
 
     if accelerator.is_main_process:
-        vectorized_datasets.save_to_disk(data_args.output_dir)
+        # Save to disk with S3 support
+        if storage_options:
+            logger.info(f"Saving dataset to S3: {data_args.output_dir}")
+            vectorized_datasets.save_to_disk(data_args.output_dir, storage_options=storage_options)
+        else:
+            vectorized_datasets.save_to_disk(data_args.output_dir)
+            
         if data_args.push_to_hub:
             vectorized_datasets.push_to_hub(
                 data_args.hub_dataset_id,
