@@ -7,3 +7,4 @@ transformers
 accelerate
 bitsandbytes
 s3fs
+numpy<=1.26.4
