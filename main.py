@@ -1,4 +1,4 @@
-from datasets import load_dataset, load_from_disk, Audio
+from datasets import load_dataset, load_from_disk, Audio, DatasetDict
 from multiprocess import set_start_method
 from dataspeech import rate_apply, pitch_apply, snr_apply, squim_apply
 import torch
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     if args.from_disk:
         print(f"Loading dataset from disk: {args.dataset_name}")
         if storage_options:
-            dataset = load_from_disk(args.dataset_name, storage_options=storage_options)
+            dataset = load_from_disk(args.dataset_name, storage_options=storage_options).select(30)
         else:
             dataset = load_from_disk(args.dataset_name)
     else:
@@ -76,6 +76,7 @@ if __name__ == "__main__":
     if args.rename_column:
         dataset = dataset.rename_columns({args.audio_column_name: "audio", args.text_column_name: "text"})
         
+    dataset = DatasetDict({"train": dataset})
 
     if args.apply_squim_quality_estimation:
         print("Compute SI-SDR, PESQ, STOI")
