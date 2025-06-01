@@ -179,6 +179,9 @@ class DataArguments:
     is_new_speaker_prompt: Optional[bool] = field(
         default=False, metadata={"help": "Whether to use the newest speaker prompt, which will be used for the next Parler-TTS."}
     )
+    gender_name: Optional[str] = field(
+        default=None, metadata={"help": "Speaker gender column name.}
+    )
     speaker_id_column: Optional[str] = field(
         default=None, metadata={"help": "Speaker id column name. Only used if creating a dataset with multiple speaker names (i.e if `speaker_ids_to_name_json` is specified)"}
     )
@@ -529,7 +532,7 @@ def main():
         for split in raw_datasets:
             raw_datasets[split] = raw_datasets[split].select(range(data_args.max_eval_samples))
 
-    EXPECTED_COLUMNS = {"gender", "pitch", "noise", "reverberation", "speech_monotony", "speaking_rate"}
+    EXPECTED_COLUMNS = {data_args.gender_name, "pitch", "noise", "reverberation", "speech_monotony", "speaking_rate"}
     if data_args.is_single_speaker:
         EXPECTED_COLUMNS = {"noise", "reverberation", "speech_monotony", "speaking_rate"}
         
