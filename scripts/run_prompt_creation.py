@@ -25,7 +25,6 @@ from datetime import timedelta
 from accelerate import InitProcessGroupKwargs
 
 
-logger = get_logger(__name__, log_level="INFO")
 
 
 @dataclass
@@ -259,7 +258,7 @@ def save_checkpoint(output_dir, all_generated_ids, step):
 def load_checkpoint(checkpoint_path):
     with open(checkpoint_path, "r") as file:
         all_generated_ids = json.load(file)
-    logger.info(f"Json file {checkpoint_path} loaded.")
+    print(f"Json file {checkpoint_path} loaded.")
     all_generated_ids = [np.array(lst) for lst in all_generated_ids]
     return all_generated_ids
 
@@ -292,7 +291,7 @@ def rotate_checkpoints(save_total_limit=None, output_dir=None) -> None:
     number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - save_total_limit)
     checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
     for checkpoint in checkpoints_to_be_deleted:
-        logger.info(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
+        print(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
         os.remove(checkpoint)
 
 
@@ -461,7 +460,7 @@ def main():
             }
             if hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url:
                 storage_options["client_kwargs"] = {"endpoint_url": data_args.aws_endpoint_url}
-            logger.info(f"Using S3 storage options{' with custom endpoint: ' + data_args.aws_endpoint_url if hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url else ''}")
+            print(f"Using S3 storage options{' with custom endpoint: ' + data_args.aws_endpoint_url if hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url else ''}")
         elif data_args.aws_access_key_id or data_args.aws_secret_access_key or (hasattr(data_args, 'aws_endpoint_url') and data_args.aws_endpoint_url):
             logger.warning("Partial S3 credentials provided. Both aws_access_key_id and aws_secret_access_key are required for S3 storage.")
             if not data_args.aws_access_key_id:
@@ -474,11 +473,11 @@ def main():
     accelerator = Accelerator(kwargs_handlers=[process_group_kwargs])
 
     if data_args.overwrite_output_dir and os.path.exists(data_args.output_dir) and os.path.isdir(data_args.output_dir):
-        logger.info("Cleaning output dir from previous run...")
+        print("Cleaning output dir from previous run...")
         shutil.rmtree(data_args.output_dir)
 
     # 3. Load annotated dataset
-    logger.info("*** Load annotated dataset ***")
+    print("*** Load annotated dataset ***")
     
     # Prepare load_dataset kwargs
     load_dataset_kwargs = {
@@ -496,7 +495,7 @@ def main():
         for split in data_splits:
             with accelerator.local_main_process_first():
                 if hasattr(data_args, 'from_disk') and data_args.from_disk:
-                    logger.info(f"Loading dataset from disk: {data_args.dataset_name}")
+                    print(f"Loading dataset from disk: {data_args.dataset_name}")
                     if storage_options:
                         raw_datasets[split] = load_from_disk(data_args.dataset_name, storage_options=storage_options)[split]
                     else:
@@ -512,7 +511,7 @@ def main():
         with accelerator.local_main_process_first():
             # load all splits for annotation
             if hasattr(data_args, 'from_disk') and data_args.from_disk:
-                logger.info(f"Loading dataset from disk: {data_args.dataset_name}")
+                print(f"Loading dataset from disk: {data_args.dataset_name}")
                 if storage_options:
                     raw_datasets = load_from_disk(data_args.dataset_name, storage_options=storage_options)
                 else:
@@ -556,7 +555,7 @@ def main():
         )
 
     # 4. Load pre-trained model
-    logger.info("*** Load pretrained model ***")
+    print("*** Load pretrained model ***")
     torch_dtype = (
         model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
     )
@@ -671,7 +670,7 @@ def main():
         accelerator.wait_for_everyone()
 
         if cur_step > 0:
-            logger.info(f"Resuming {split} from step {cur_step}")
+            print(f"Resuming {split} from step {cur_step}")
             # efficiently skip the first n batches
             data_loader = skip_first_batches(data_loader, cur_step)
             progress_bar.update(cur_step)
@@ -708,7 +707,7 @@ def main():
     if accelerator.is_main_process:
         # Save to disk with S3 support
         if storage_options:
-            logger.info(f"Saving dataset to S3: {data_args.output_dir}")
+            print(f"Saving dataset to S3: {data_args.output_dir}")
             vectorized_datasets.save_to_disk(data_args.output_dir, storage_options=storage_options)
         else:
             vectorized_datasets.save_to_disk(data_args.output_dir)
