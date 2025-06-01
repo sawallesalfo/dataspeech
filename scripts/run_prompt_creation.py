@@ -180,7 +180,7 @@ class DataArguments:
         default=False, metadata={"help": "Whether to use the newest speaker prompt, which will be used for the next Parler-TTS."}
     )
     gender_name: Optional[str] = field(
-        default=None, metadata={"help": "Speaker gender column name.}
+        default=None, metadata={"help": "Speaker gender column name."}
     )
     speaker_id_column: Optional[str] = field(
         default=None, metadata={"help": "Speaker id column name. Only used if creating a dataset with multiple speaker names (i.e if `speaker_ids_to_name_json` is specified)"}
