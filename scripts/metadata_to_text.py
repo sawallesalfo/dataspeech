@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from datasets import load_dataset, DatasetDict
+from datasets import load_dataset, load_from_disk, DatasetDict
 from multiprocess import set_start_method
 import argparse
 from pathlib import Path
@@ -155,33 +155,73 @@ def speaker_level_relative_to_gender(dataset, text_bins, speaker_column_name, ge
     dataset = [df.map(batch_association, batched=True, input_columns=[speaker_column_name], batch_size=batch_size, num_proc=num_workers) for df in dataset]
     return dataset, bin_edges
 
+def load_single_dataset(dataset_name, dataset_config=None, num_proc=1, from_disk=False, storage_options=None):
+    """Helper function to load a single dataset"""
+    if from_disk:
+        if storage_options:
+            return load_from_disk(dataset_name, storage_options=storage_options)
+        else:
+            return load_from_disk(dataset_name)
+    else:
+        if dataset_config:
+            return load_dataset(dataset_name, dataset_config, num_proc=num_proc)
+        else:
+            return load_dataset(dataset_name, num_proc=num_proc)
+
+def save_single_dataset(dataset, output_dir, storage_options=None):
+    """Helper function to save a single dataset"""
+    if storage_options:
+        dataset.save_to_disk(output_dir, storage_options=storage_options)
+    else:
+        dataset.save_to_disk(output_dir)
+
 if __name__ == "__main__":
     set_start_method("spawn")
     parser = argparse.ArgumentParser()
     
-    
+    # Dataset loading arguments
     parser.add_argument("dataset_name", type=str, help="Path or name of the dataset(s). If multiple datasets, names have to be separated by `+`.")
     parser.add_argument("--configuration", default=None, type=str, help="Dataset configuration(s) to use (or configuration separated by +).")
+    parser.add_argument("--from_disk", action="store_true", help="If set, load dataset(s) from disk using load_from_disk instead of load_dataset.")
+    
+    # S3 storage options
+    parser.add_argument("--aws_access_key_id", default=None, type=str, help="AWS access key ID for S3 storage.")
+    parser.add_argument("--aws_secret_access_key", default=None, type=str, help="AWS secret access key for S3 storage.")
+    parser.add_argument("--aws_endpoint_url", default=None, type=str, help="AWS S3 endpoint URL (e.g., for custom S3-compatible storage).")
+    
+    # Output arguments
     parser.add_argument("--output_dir", default=None, type=str, help="If specified, save the dataset(s) on disk. If multiple datasets, paths have to be separated by `+`.")
     parser.add_argument("--repo_id", default=None, type=str, help="If specified, push the dataset(s) to the hub. If multiple datasets, names have to be separated by `+`.")
+    
+    # Bin configuration arguments
     parser.add_argument("--path_to_text_bins", default=None, type=str, help="If specified, points to a JSON file which contains the text bins that will be associated to each bins. Will use default bins.")
     parser.add_argument("--path_to_bin_edges", default=None, type=str, help="If specified, points to a JSON file which contains the bin edges. Useful if you want to apply already computed bins to new datasets. If not specified, will recompute bin edges from scratch.")
     parser.add_argument("--save_bin_edges", default=None, type=str, help="If specified, it's the name of the JSON file which will contains the edge bins that have been computed. Useful if you want to reuse those bin eges on new datasets. By default, it won't save those edges..")
+    
+    # Processing arguments
     parser.add_argument("--avoid_pitch_computation", default=False, action="store_true", help="If `True`, will not compute `pitch`. Note that `pitch` is computed on a speaker-level, relative to gender, so you don't need it in a mono-speaker setting.")
     parser.add_argument("--cpu_num_workers", default=1, type=int, help="Number of CPU workers.")
     parser.add_argument("--batch_size", default=16, type=int, help="Batch size in `Dataset.map` operations. https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Dataset.map")
+    
+    # Column name arguments
     parser.add_argument("--speaker_id_column_name", default="speaker_id", type=str, help="Speaker id column name. Only used if `avoid_pitch_computation=False`")
     parser.add_argument("--gender_column_name", default="gender", type=str, help="Gender column name. .Only used if `avoid_pitch_computation=False`")
+    
+    # Tolerance arguments
     parser.add_argument("--pitch_std_tolerance", default=2., type=float, help="Standard deviation tolerance for pitch estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `avoid_pitch_computation=False`.")
     parser.add_argument("--speaking_rate_std_tolerance", default=4., type=float, help="Standard deviation tolerance for speaking rate estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `path_to_bin_edges=False`.")
     parser.add_argument("--snr_std_tolerance", default=3.5, type=float, help="Standard deviation tolerance for SNR estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `path_to_bin_edges=False`.")
     parser.add_argument("--reverberation_std_tolerance", default=4, type=float, help="Standard deviation tolerance for reverberation estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `path_to_bin_edges=False`.")
     parser.add_argument("--speech_monotony_std_tolerance", default=4, type=float, help="Standard deviation tolerance for speech monotony estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `path_to_bin_edges=False`.")
+    
+    # Other processing arguments
     parser.add_argument("--leading_split_for_bins", default=None, type=str, help="If specified, will use every split that contains this string to compute statistics. If not specified, will use every split. Only used if `path_to_bin_edges=False`.")
     parser.add_argument("--plot_directory", default=None, type=str, help="If specified, will save visualizing plots to this directory. Only used if `path_to_bin_edges=False`.")
     parser.add_argument("--only_save_plot", default=False, action="store_true", help="If `True` and `--plot_directory` is specified, will only compute plot. Only used if `path_to_bin_edges=False`.")
     parser.add_argument("--snr_lower_range", default=None, type=float, help="The lower range of the SNR bins")
     parser.add_argument("--speaking_rate_lower_range", default=None, type=float, help="The lower range of the speaking rate bins")
+    
+    # SQUIM quality estimation arguments
     parser.add_argument("--apply_squim_quality_estimation", action="store_true", help="If set, will also compute bins for torchaudio-squim estimation (SI-SNR, PESQ).")
     parser.add_argument("--pesq_std_tolerance", default=None, type=float, help="Used if `apply_squim_quality_estimation=True`. Standard deviation tolerance for PESQ estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `avoid_pitch_computation=False`.")
     parser.add_argument("--sdr_std_tolerance", default=None, type=float, help="Used if `apply_squim_quality_estimation=True`. Standard deviation tolerance for SI-SDR estimation. Any value that is outside mean ± std * tolerance is discared. Only used if `path_to_bin_edges=False`.")
@@ -192,6 +232,23 @@ if __name__ == "__main__":
         raise ValueError("`only_save_plot=true` but `plot_directory` is not specified. Please give a path to the directory where you want the plot to be saved.")
     if args.only_save_plot and args.path_to_bin_edges:
         raise ValueError("`only_save_plot=true` but `path_to_bin_edges` is specified. Since the latter is specified, we won't redo computations that would have been used for plotting. Chose one ar another. Note that if you use this script to label a new dataset for fine-tuning, I'd recommend avoiding plotting and set `only_save_plot=false`")
+    
+    # Setup storage options for S3 if provided
+    storage_options = None
+    if args.aws_access_key_id and args.aws_secret_access_key:
+        storage_options = {
+            "key": args.aws_access_key_id,
+            "secret": args.aws_secret_access_key,
+        }
+        if args.aws_endpoint_url:
+            storage_options["client_kwargs"] = {"endpoint_url": args.aws_endpoint_url}
+        print(f"Using S3 storage options{' with custom endpoint: ' + args.aws_endpoint_url if args.aws_endpoint_url else ''}")
+    elif args.aws_access_key_id or args.aws_secret_access_key or args.aws_endpoint_url:
+        print("Warning: Partial S3 credentials provided. Both --aws_access_key_id and --aws_secret_access_key are required for S3 storage.")
+        if not args.aws_access_key_id:
+            print("Missing: --aws_access_key_id")
+        if not args.aws_secret_access_key:
+            print("Missing: --aws_secret_access_key")
         
     text_bins_dict = {}
     if args.path_to_text_bins:
@@ -215,50 +272,34 @@ if __name__ == "__main__":
 
     output_dirs = [args.output_dir] if args.output_dir is not None else None
     repo_ids = [args.repo_id] if args.repo_id is not None else None
-    if args.configuration:
-        if "+" in args.dataset_name:
-            dataset_names = args.dataset_name.split("+")
-            dataset_configs = args.configuration.split("+")
-            if len(dataset_names) != len(dataset_configs):
-                raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(dataset_configs)} configuration spotted")
-            
-            if args.repo_id is not None:
-                repo_ids = args.repo_id.split("+")
-                if len(dataset_names) != len(repo_ids):
-                    raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(repo_ids)} repository ids spotted")
+    
+    # Handle multiple datasets
+    if "+" in args.dataset_name:
+        dataset_names = args.dataset_name.split("+")
+        dataset_configs = args.configuration.split("+") if args.configuration else [None] * len(dataset_names)
+        
+        if args.configuration and len(dataset_names) != len(dataset_configs):
+            raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(dataset_configs)} configuration spotted")
+        
+        if args.repo_id is not None:
+            repo_ids = args.repo_id.split("+")
+            if len(dataset_names) != len(repo_ids):
+                raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(repo_ids)} repository ids spotted")
 
-            if args.output_dir is not None:
-                output_dirs = args.output_dir.split("+")
-                if len(dataset_names) != len(output_dirs):
-                    raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(output_dirs)} local paths on which to save the datasets spotted")
-            
-            dataset = []
-            for dataset_name, dataset_config in zip(dataset_names, dataset_configs):
-                tmp_dataset = load_dataset(dataset_name, dataset_config, num_proc=args.cpu_num_workers)
-                dataset.append(tmp_dataset)
-        else:
-            dataset = [load_dataset(args.dataset_name, args.configuration, num_proc=args.cpu_num_workers)]
-            dataset_configs = [args.configuration]
+        if args.output_dir is not None:
+            output_dirs = args.output_dir.split("+")
+            if len(dataset_names) != len(output_dirs):
+                raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(output_dirs)} local paths on which to save the datasets spotted")
+        
+        dataset = []
+        for dataset_name, dataset_config in zip(dataset_names, dataset_configs):
+            tmp_dataset = load_single_dataset(dataset_name, dataset_config, args.cpu_num_workers, args.from_disk, storage_options)
+            dataset.append(tmp_dataset)
     else:
-        if "+" in args.dataset_name:
-            dataset_names = args.dataset_name.split("+")
-            if args.repo_id is not None:
-                repo_ids = args.repo_id.split("+")
-                if len(dataset_names) != len(repo_ids):
-                    raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(repo_ids)} repository ids spotted")
-
-            if args.output_dir is not None:
-                output_dirs = args.output_dir.split("+")
-                if len(dataset_names) != len(output_dirs):
-                    raise ValueError(f"There are {len(dataset_names)} datasets spotted but {len(output_dirs)} local paths on which to save the datasets spotted")
-            
-            dataset = []
-            for dataset_name, dataset_config in zip(dataset_names):
-                tmp_dataset = load_dataset(dataset_name, num_proc=args.cpu_num_workers)
-                dataset.append(tmp_dataset)
-
-        else:
-            dataset = [load_dataset(args.dataset_name, num_proc=args.cpu_num_workers)]
+        # Single dataset
+        dataset_config = args.configuration if args.configuration else None
+        dataset = [load_single_dataset(args.dataset_name, dataset_config, args.cpu_num_workers, args.from_disk, storage_options)]
+        dataset_configs = [dataset_config]
 
     if args.plot_directory:
         Path(args.plot_directory).mkdir(parents=True, exist_ok=True)
@@ -298,9 +339,11 @@ if __name__ == "__main__":
         
     if not args.only_save_plot:
         if args.output_dir:
+            print("Saving to disk...")
             for output_dir, df in zip(output_dirs, dataset):
-                df.save_to_disk(output_dir)
+                save_single_dataset(df, output_dir, storage_options)
         if args.repo_id:
+            print("Pushing to the hub...")
             for i, (repo_id, df) in enumerate(zip(repo_ids, dataset)):
                 if args.configuration:
                     df.push_to_hub(repo_id, dataset_configs[i])
