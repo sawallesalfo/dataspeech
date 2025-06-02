@@ -532,7 +532,7 @@ def main():
         for split in raw_datasets:
             raw_datasets[split] = raw_datasets[split].select(range(data_args.max_eval_samples))
 
-    EXPECTED_COLUMNS = {data_args.gender_name, "pitch", "noise", "reverberation", "speech_monotony", "speaking_rate"}
+    EXPECTED_COLUMNS = {data_args.gender_column_name, "pitch", "noise", "reverberation", "speech_monotony", "speaking_rate"}
     if data_args.is_single_speaker:
         EXPECTED_COLUMNS = {"noise", "reverberation", "speech_monotony", "speaking_rate"}
         
