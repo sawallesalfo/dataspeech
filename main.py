@@ -67,7 +67,7 @@ if __name__ == "__main__":
     if args.from_disk:
         print(f"Loading dataset from disk: {args.dataset_name}")
         if storage_options:
-            dataset = load_from_disk(args.dataset_name, storage_options=storage_options).select(range(30))
+            dataset = load_from_disk(args.dataset_name, storage_options=storage_options)
         else:
             dataset = load_from_disk(args.dataset_name)
     else:
