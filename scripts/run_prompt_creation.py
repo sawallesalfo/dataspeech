@@ -589,7 +589,7 @@ def main():
       attention_mask_cpu  = torch.tensor(batch["attention_mask"], dtype=torch.long)  
 
       input_ids = input_ids_cpu.unsqueeze(0).to(accelerator.device)
-      attention_mask  = torch.tensor(batch["attention_mask"], dtype=torch.long)  
+      attention_mask = attention_mask_cpu.unsqueeze(0).to(accelerator.device)
 
       output_ids = accelerator.unwrap_model(model).generate(
           input_ids,
